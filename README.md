@@ -1,12 +1,13 @@
 # core
 
-全仓最底层公共库：**零第三方依赖**的原语与通用工具，供所有模块（含 `framework` 与各 leaf 模块）复用。
+全仓最底层公共库：纯 stdlib 原语 + 通用接口契约 + 默认实现（日志 zap），供所有模块（含 `framework` 与各 leaf 模块）复用。
 
 ## 定位与边界
 
-- **只放**零依赖且被多个模块共用的东西：纯 stdlib 原语、通用工具函数、通用接口契约。
-- **不放**：依赖第三方（gin/zap/redis/gorm/otel）的能力、IOC 容器、业务/领域能力、单模块私有实现。
-- 依赖方向：`core → 无`；`framework → core`；`lock/idempotent/ratelimit/circuitbreaker/cache → core`；其余模块经 `framework` 传递获得。
+- **契约层**（`contract/`/`util/`/`config/`/`enum/`）保持零第三方依赖，供 leaf 模块安全复用（只 import 契约不拉第三方）。
+- **实现层**（`service/log`）可引第三方：默认本地日志实现用 zap + lumberjack。
+- **不放**：依赖 gin/redis/gorm/otel 的能力、IOC 容器、业务/领域能力、单模块私有实现。
+- 依赖方向：`core → 无`（仅 `service/log` 引 zap）；`framework → core`；`lock/idempotent/ratelimit/circuitbreaker/cache → core`；其余模块经 `framework` 传递获得。
 
 ## 目录结构（对齐 framework）
 
@@ -14,10 +15,10 @@
 |------|------|------|
 | `util/`     | 零依赖纯工具（具体类型/函数，无接口） | ✅ 已建 |
 | `contract/` | 全仓通用接口契约（有真正多实现/IOC 需求时再建） | ✅ 已建（`log`） |
-| `service/`  | 契约实现 | 预留 |
-| `config/`   | 通用配置结构 | 预留 |
+| `service/`  | 契约实现 | ✅ 已建（`log`） |
+| `config/`   | 通用配置结构 | ✅ 已建（`log`） |
 | `entity/`   | 通用实体 | 预留 |
-| `enum/`     | 通用枚举 | 预留 |
+| `enum/`     | 通用枚举 | ✅ 已建（`trace`） |
 | `mocks/`    | 契约 mock | 预留 |
 
 ## 已提供能力
@@ -37,7 +38,12 @@
 
 ### 日志契约（`contract/log`）
 
-- `ILog` — 全仓通用日志接口（Debug/Error/Info/Warn），零依赖，已从 `framework/contract/log` 下沉至此，供 leaf 模块直接复用。实现方：`framework/service/log`（本地 zap）、`log-sls`（阿里云 SLS）。
+- `ILog` — 全仓通用日志接口（Debug/Error/Info/Warn），零依赖，已从 `framework/contract/log` 下沉至此，供 leaf 模块直接复用。
+
+### 日志实现（`service/log`）
+
+- `NewLogger(*config.LocalConfig)` — 本地 zap 默认实现，配合 `config/log`（`LocalConfig`/`SlsConfig`）、`enum/trace`（`TraceIdKey`）使用。
+- 厂商后端（SLS）见 `log-sls` 模块，二者通过 `ILog` 契约二选一；业务方不满意默认实现可自行注入。
 
 ## 发布
 
