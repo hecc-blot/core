@@ -19,7 +19,7 @@
 | `config/`   | 通用配置结构 | ✅ 已建（`log`） |
 | `entity/`   | 通用实体 | 预留 |
 | `enum/`     | 通用枚举 | ✅ 已建（`trace`） |
-| `mocks/`    | 契约 mock | 预留 |
+| `mocks/`    | 契约 mock | ✅ 已建（`log`） |
 
 ## 已提供能力
 
