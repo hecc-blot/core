@@ -13,7 +13,7 @@
 | 目录 | 用途 | 状态 |
 |------|------|------|
 | `util/`     | 零依赖纯工具（具体类型/函数，无接口） | ✅ 已建 |
-| `contract/` | 全仓通用接口契约（有真正多实现/IOC 需求时再建） | 预留 |
+| `contract/` | 全仓通用接口契约（有真正多实现/IOC 需求时再建） | ✅ 已建（`log`） |
 | `service/`  | 契约实现 | 预留 |
 | `config/`   | 通用配置结构 | 预留 |
 | `entity/`   | 通用实体 | 预留 |
@@ -34,6 +34,10 @@
 
 - `RandomHex(n)` — n 字节随机数的十六进制串（长度 2n），基于 crypto/rand，不可预测。
 - `UUIDv4()` — RFC 4122 v4 版本 UUID。
+
+### 日志契约（`contract/log`）
+
+- `ILog` — 全仓通用日志接口（Debug/Error/Info/Warn），零依赖，已从 `framework/contract/log` 下沉至此，供 leaf 模块直接复用。实现方：`framework/service/log`（本地 zap）、`log-sls`（阿里云 SLS）。
 
 ## 发布
 
