@@ -7,7 +7,7 @@
 - **契约层**（`contract/`/`util/`/`config/`/`enum/`）保持零第三方依赖，供 leaf 模块安全复用（只 import 契约不拉第三方）。
 - **实现层**（`service/log`）可引第三方：默认本地日志实现用 zap + lumberjack。
 - **不放**：依赖 gin/redis/gorm/otel 的能力、IOC 容器、业务/领域能力、单模块私有实现。
-- 依赖方向：`core → 无`（仅 `service/log` 引 zap）；`framework → core`；`lock/idempotent/ratelimit/circuitbreaker/cache → core`；其余模块经 `framework` 传递获得。
+- 依赖方向：`core → 无`（仅 `service/log` 引 zap）；`framework → 无`；`log-sls`/`httpclient → core`；`scheduler → core+trace`；`db`/`db-es`/`db-mongo`/`db-clickhouse`/`trace → core+framework`；`mq → core+framework+trace`；`lock → core`（util.RandomHex）；`cache → framework+trace`；`sse`/`metrics → framework`；`ratelimit`/`idempotent`/`circuitbreaker → 第三方`。
 
 ## 目录结构（对齐 framework）
 
@@ -44,6 +44,55 @@
 
 - `NewLogger(*config.LocalConfig)` — 本地 zap 默认实现，配合 `config/log`（`LocalConfig`/`SlsConfig`）、`enum/trace`（`TraceIdKey`）使用。
 - 厂商后端（SLS）见 `log-sls` 模块，二者通过 `ILog` 契约二选一；业务方不满意默认实现可自行注入。
+
+### 日志配置与使用
+
+本地日志配置（`LocalConfig`，`core/config/log`）：
+
+```yaml
+log:
+  local:
+    enable: true
+    root_dir: runtime/logs
+    show_line: true        # 是否输出 caller 行号
+    max_size: 100          # 单文件最大 100MB
+    max_backups: 30        # 最多保留 30 个旧文件
+    max_age: 7             # 日志保留 7 天
+    compress: true         # 压缩旧文件
+```
+
+日志按级别分文件滚动输出：
+
+| 文件 | 级别 | 说明 |
+|------|------|------|
+| `debug.log` | Debug | 调试信息 |
+| `info.log` | Info | 一般信息 |
+| `warn.log` | Warn | 警告信息 |
+| `error.log` | Error | 错误信息（含 stacktrace） |
+| `panic.log` | Panic | 恐慌信息（含 stacktrace） |
+
+使用：
+
+```go
+logSvc, _ := log.NewLogger(&config.Log.Local)
+logSvc.Info(ctx, "user login success", "ip", c.ClientIP())
+logSvc.Error(ctx, "database connection failed", zap.Error(err))
+
+// fields 支持 zapcore.Field 类型
+logSvc.Info(ctx, "order created", zap.String("order_id", orderID), zap.Int("amount", 100))
+```
+
+从 Context 自动提取 TraceId（key 见 `core/enum/trace`），输出自动包含 `traceId` 和 `caller` 字段：
+
+```json
+{
+    "level": "info",
+    "msg": "user login",
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "caller": "example/example.go:209",
+    "user_id": 123
+}
+```
 
 ## 发布
 
