@@ -17,9 +17,9 @@ var localConf = &logConfig.LocalConfig{
 }
 
 func TestLogSvc(t *testing.T) {
-	logger, err := newLogSvc(localConf)
+	logger, err := NewLogger(localConf)
 	if err != nil {
-		t.Fatalf("newLogSvc 失败: %v", err)
+		t.Fatalf("NewLogger 失败: %v", err)
 	}
 	if logger == nil {
 		t.Fatal("logger 不应为 nil")
@@ -55,9 +55,9 @@ func TestLogSvc(t *testing.T) {
 }
 
 func TestLogSvcWithTrace(t *testing.T) {
-	logger, err := newLogSvc(localConf)
+	logger, err := NewLogger(localConf)
 	if err != nil {
-		t.Fatalf("newLogSvc 失败: %v", err)
+		t.Fatalf("NewLogger 失败: %v", err)
 	}
 
 	ctxWithTraceId := context.WithValue(context.Background(), trace.TraceIdKey, "test-trace-id")

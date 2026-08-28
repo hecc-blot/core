@@ -42,7 +42,7 @@
 
 ### 日志实现（`service/log`）
 
-- `NewLogger(*config.LocalConfig)` — 本地 zap 默认实现，配合 `config/log`（`LocalConfig`/`SlsConfig`）、`enum/trace`（`TraceIdKey`）使用。
+- `NewLogger(*config.LocalConfig)` — 本地 zap 默认实现，配合 `config/log`（`LocalConfig`）、`enum/trace`（`TraceIdKey`）使用。
 - 厂商后端（SLS）见 `log-sls` 模块，二者通过 `ILog` 契约二选一；业务方不满意默认实现可自行注入。
 
 ### 日志配置与使用
@@ -52,7 +52,6 @@
 ```yaml
 log:
   local:
-    enable: true
     root_dir: runtime/logs
     show_line: true        # 是否输出 caller 行号
     max_size: 100          # 单文件最大 100MB

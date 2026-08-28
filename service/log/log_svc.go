@@ -50,7 +50,9 @@ func (b LogSvc) buildFields(traceId string, fields ...interface{}) []zapcore.Fie
 	return zapFields
 }
 
-func newLogSvc(logConf *logConfig.LocalConfig) (logContract.ILog, error) {
+// NewLogger 创建本地日志服务（core 默认 logger，zap 文件滚动）。
+// SLS 等厂商后端见 github.com/hecc-blot/log-sls/service，由组装层按配置二选一。
+func NewLogger(logConf *logConfig.LocalConfig) (logContract.ILog, error) {
 	var rootDir string
 	var maxSize, maxBackups, maxAge int
 	var compress bool
