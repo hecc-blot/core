@@ -6,20 +6,21 @@
 
 - **契约层**（`contract/`/`util/`/`config/`/`enum/`）保持零第三方依赖，供 leaf 模块安全复用（只 import 契约不拉第三方）。
 - **实现层**（`service/log`）可引第三方：默认本地日志实现用 zap + lumberjack。
-- **不放**：依赖 gin/redis/gorm/otel 的能力、IOC 容器、业务/领域能力、单模块私有实现。
-- 依赖方向：`core → 无`（仅 `service/log` 引 zap）；`framework → 无`；`log-sls`/`httpclient → core`；`scheduler → core+trace`；`db`/`db-es`/`db-mongo`/`db-clickhouse`/`trace → core+framework`；`mq → core+framework+trace`；`lock → core`（util.RandomHex）；`cache → framework+trace`；`sse`/`metrics → framework`；`ratelimit`/`idempotent`/`circuitbreaker → 第三方`。
+- **不放**：依赖 gin/redis/gorm/otel 的能力、业务/领域能力、单模块私有实现。
+- **IOC 容器**（`contract/ioc` + `service/ioc` + `mocks/ioc`）：纯 stdlib（`reflect` + `fmt`）、零第三方依赖，是全仓最底层的通用组装能力，故置于此。它与「不放」清单里 gin/redis/gorm 那类的区别在于——那些会往下游拉第三方，IOC 不会。已从 `framework` 下沉至此，供 `framework`/`sse`/`mq` 直接复用。
+- 依赖方向：`core → 无`（仅 `service/log` 引 zap）；`framework → core`；`log-sls`/`httpclient`/`lock → core`；`scheduler`/`mq → core+trace`；`db`/`db-es`/`db-mongo`/`db-clickhouse`/`trace → core+framework`；`cache → framework+trace`；`sse → framework+core`；`metrics → framework`；`ratelimit`/`idempotent`/`circuitbreaker → 第三方`。
 
 ## 目录结构（对齐 framework）
 
 | 目录 | 用途 | 状态 |
 |------|------|------|
 | `util/`     | 零依赖纯工具（具体类型/函数，无接口） | ✅ 已建 |
-| `contract/` | 全仓通用接口契约（有真正多实现/IOC 需求时再建） | ✅ 已建（`log`） |
-| `service/`  | 契约实现 | ✅ 已建（`log`） |
+| `contract/` | 全仓通用接口契约 | ✅ 已建（`log`、`ioc`） |
+| `service/`  | 契约实现 | ✅ 已建（`log`、`ioc`） |
 | `config/`   | 通用配置结构 | ✅ 已建（`log`） |
 | `entity/`   | 通用实体 | 预留 |
 | `enum/`     | 通用枚举 | ✅ 已建（`trace`） |
-| `mocks/`    | 契约 mock | ✅ 已建（`log`） |
+| `mocks/`    | 契约 mock | ✅ 已建（`log`、`ioc`） |
 
 ## 已提供能力
 
@@ -92,6 +93,22 @@ logSvc.Info(ctx, "order created", zap.String("order_id", orderID), zap.Int("amou
     "user_id": 123
 }
 ```
+
+### IOC 容器（`contract/ioc` + `service/ioc` + `mocks/ioc`）
+
+- `IContainer` — 依赖注入容器契约（`Get` / `Inject` / `Set` / `SetWithName`），零依赖。`framework` 的 `ApiHandle`、`sse` 的 `SseHandle`、`mq` 的 `ConsumerHandle` 均依赖此接口而非具体实现，业务方可替换为自己的容器。
+- `New()` — 默认反射实现，可实例化、支持多容器隔离，纯 stdlib。
+- `mocks.MockContainer` — 契约 mock，供单测复用。
+
+```go
+container := ioc.New()
+container.Set(new(dbContract.IDbFactory), dbFactory)   // 初始化阶段注册
+container.Inject(&someApi)                              // 运行阶段注入
+```
+
+> **注入规则（最高优先级约定）**：字段带 `inject:""` tag 才会被注入，且遍历时**遇到第一个没有 `inject` tag 的具名字段就停止**（`service/ioc/ioc_svc.go` 里的 `return`，是刻意设计不是 bug）。因此注入字段必须放在最前面，请求参数等放在最后。匿名嵌套的非 struct 字段（如 `sync.Mutex`）会 `continue`，不中断扫描。
+
+> 该模块原先位于 `framework`，2026-09-12 下沉至此：mq 的消费者注册器需要 `IContainer`，而 mq 不应为此依赖整个 framework；IOC 本身是纯 stdlib 的通用组装能力，本就符合 core 的定位。
 
 ## 发布
 
