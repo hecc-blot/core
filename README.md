@@ -147,10 +147,23 @@ container.Inject(&AddApi{})
 ### goroutine（`util/goroutine.go`）
 
 ```go
-util.Go(func() { doSomething() })                  // 安全起协程：内部 recover panic，不拖垮进程
-util.RunLimit(4, []func(){taskA, taskB, taskC})    // 有界并发扇出：最多 4 个同时跑，全部完成才返回
-util.SetPanicHandler(myHandler)                    // 注入 panic 处理（默认走标准库 log），启动时调一次
+util.Go(ctx, func() { doSomething() })                 // 安全起协程：内部 recover panic，不拖垮进程
+util.RunLimit(ctx, 4, []func(){taskA, taskB, taskC})   // 有界并发扇出：最多 4 个同时跑，全部完成才返回
+util.SetPanicHandler(myHandler)                       // 注入 panic 处理（默认走标准库 log），可随时调、并发安全
 ```
+
+`ctx` 只用于 panic 归因（处理器里能取到 traceId），**不控制任务生命周期** —— 需要取消/超时请在任务内自行监听 `ctx.Done()`；传 `nil` 会归一为 `Background`。
+
+处理器签名带 ctx，所以 panic 日志可以关联到请求：
+
+```go
+util.SetPanicHandler(func(ctx context.Context, r any, stack []byte) {
+    logger.Error(ctx, "goroutine panic",
+        zap.Any("panic", r), zap.String("stack", string(stack)))
+})
+```
+
+> `SetPanicHandler` 并发安全，启动期调一次即可，之后也可替换；传 `nil` 是 no-op（保持当前值，不会退回默认）。
 
 > 设计说明：Go 惯用法不设全局池，而在扇出点限并发（`RunLimit`）；`Go` 只负责安全直起。
 
