@@ -167,6 +167,29 @@ util.SetPanicHandler(func(ctx context.Context, r any, stack []byte) {
 
 > 设计说明：Go 惯用法不设全局池，而在扇出点限并发（`RunLimit`）；`Go` 只负责安全直起。
 
+### 并发上限（`util/limit.go`）
+
+```go
+lim := util.NewLimit(64)   // 构造一次，挂在拥有该受限资源的 service 上；不要每次调用前新建
+
+// 流式：事件持续到来（如 MQ handler 内），满则阻塞 → 背压
+lim.Go(ctx, func() { doWork(msg) })
+
+// 不可阻塞、要明确拒绝（如 HTTP 入口）：满了返回 ErrLimitFull，由业务决定 429 / 丢弃
+if err := lim.TryGo(ctx, func() { doWork(msg) }); errors.Is(err, util.ErrLimitFull) {
+    // 429 / 降级
+}
+
+lim.InFlight()   // 在途任务数，可采进监控
+lim.Cap()        // 并发上限
+```
+
+> **`Go` / `TryGo` 返回非 nil 表示 fn 未启动**（`ctx.Err()` 或 `ErrLimitFull`），调用方必须处理 —— MQ 场景下若忽略并返回 nil，消息会被 ack 但实际未处理。未用 `NewLimit` 构造时返回 `ErrLimitNotInitialized`。
+
+> **边界**：只约束经由它的调用点，管不住 fn 内部自起的协程，也管不住别处裸写的 `go func(){}()`。它限的是**在途任务数**，不是进程 goroutine 总数。一个 `Limit` 对应一个受限资源（DB 一个、打下游 HTTP 一个），上限各自依据下游容量定，不要搞包级全局单例。
+
+> **选型**：批式（给一批任务、要全跑完）→ `RunLimit`；流式（事件持续到来）→ `Limit.Go`；能确定有界的单发 → `Go`。`fn` 内不要对同一个 `Limit` 再调 `Go`（槽位互等会死锁）。
+
 ### random（`util/random.go`）
 
 ```go
