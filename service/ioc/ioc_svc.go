@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	instanceIsNotPtr       = "ioc: 注入实例必须是指针"
-	invalidTypeFormat      = "ioc: 无效类型(Name = %s, Type = %v)"
-	notImplementsFormat    = "ioc: %v没有实现%v"
-	notInterfaceTypeFormat = "ioc: 非接口类型(%v)"
+	instanceIsNotPtr       = "ioc: injected instance must be a pointer"
+	invalidTypeFormat      = "ioc: invalid type (Name = %s, Type = %v)"
+	notImplementsFormat    = "ioc: %v does not implement %v"
+	notInterfaceTypeFormat = "ioc: not an interface type (%v)"
 )
 
 // Container 依赖注入容器，可实例化，支持多容器隔离。

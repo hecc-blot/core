@@ -58,7 +58,7 @@ func main() {
 | `service/`  | 契约实现 | `log`（zap + lumberjack）、`ioc`（反射容器） |
 | `config/`   | 通用配置结构 | `log` |
 | `entity/`   | 通用实体 | 预留 |
-| `enum/`     | 通用枚举 | `trace`（`TraceIdKey`） |
+| `enum/`     | 通用枚举 | `trace`（`TraceIdKey`）、`errorcode`（通用错误码） |
 | `mocks/`    | 契约 mock | `log`、`ioc` |
 
 ## 接口定义
@@ -165,6 +165,8 @@ util.SetPanicHandler(func(ctx context.Context, r any, stack []byte) {
 
 > `SetPanicHandler` 并发安全，启动期调一次即可，之后也可替换；传 `nil` 是 no-op（保持当前值，不会退回默认）。
 
+> **必须在 `main` 里接一次。** 不接的话协程 panic 落到标准库 `log.Printf` —— 丢掉 traceId、也不进你的日志落盘/上报链路，而且**不报错**，属静默降级。框架**刻意不代管**这件事（曾考虑在 `http.Listen` 里替业务装上，2026-10-13 决议不做：为一个可选增强让 `ILog` 变成 `Listen` 的硬依赖不划算）。
+
 > 设计说明：Go 惯用法不设全局池，而在扇出点限并发（`RunLimit`）；`Go` 只负责安全直起。
 
 ### 并发上限（`util/limit.go`）
@@ -185,6 +187,8 @@ lim.Cap()        // 并发上限
 ```
 
 > **`Go` / `TryGo` 返回非 nil 表示 fn 未启动**（`ctx.Err()` 或 `ErrLimitFull`），调用方必须处理 —— MQ 场景下若忽略并返回 nil，消息会被 ack 但实际未处理。未用 `NewLimit` 构造时返回 `ErrLimitNotInitialized`。
+>
+> 两个 sentinel 都**携带 core 段错误码**（`ErrLimitFull` → `CodeRateLimited`、`ErrLimitNotInitialized` → `CodeNotInitialized`）：直接交给 framework 的 `errorSvc.From(err)`，对外发什么码由框架按映射表决定，业务不必自己挑。
 
 > **边界**：只约束经由它的调用点，管不住 fn 内部自起的协程，也管不住别处裸写的 `go func(){}()`。它限的是**在途任务数**，不是进程 goroutine 总数。一个 `Limit` 对应一个受限资源（DB 一个、打下游 HTTP 一个），上限各自依据下游容量定，不要搞包级全局单例。
 
@@ -227,14 +231,59 @@ log:
 
 > `LocalConfig` 还有一个 `ShowLine` 字段，但**当前实现恒开启 caller 输出、不读该字段**，配置它没有效果。
 
+## 错误码
+
+`enum/errorcode` 是全仓错误码的**定义处**：core 定义基础设施通用段，framework 决定对外暴露哪些，业务在 60000+ 段自行扩展。
+
+段位划分（**已发布的码不可复用或改语义**）：
+
+| 段 | 归属 |
+|------|------|
+| 0 – 9999 | 留白（预留给成功 / 处理中的细分类） |
+| 10000 – 10001 | framework 协议：`Success` / `Processing`（已发布，不可动） |
+| 20000 – 29999 | core 通用（基础设施语义） |
+| 40000 – 59999 | framework 协议（对客户端可见） |
+| 60000 + | 业务自定义（业务内再按业务域分段） |
+
+```go
+import "github.com/hecc-blot/core/enum/errorcode"
+
+// 1. 模块 contract 里定义 sentinel —— 必须是包级单例，errors.Is 靠指针相等命中
+var ErrTimeout = errorcode.New(errorcode.CodeTimeout, "lock: acquire timeout")
+
+// 2. 调用方判断后决定重试 / 降级
+if errors.Is(err, lockContract.ErrTimeout) { /* ... */ }
+
+// 3. 边界提取码（穿透 fmt.Errorf 的 %w 链路；未携带码返回 false）
+if code, ok := errorcode.From(err); ok { /* ... */ }
+
+errorcode.IsCoreSegment(code) // 是否 core 段：framework 渲染层据此区分基础设施码与协议码
+errorcode.Message(code)       // core 段通用文案（供透传路径出 message），未知码返回空串
+```
+
+core 段现有码及 `Message` 文案（文案面向客户端，统一英文；注释与内部诊断消息不在此列）：
+
+| 码 | 值 | 文案 |
+|------|------|------|
+| `CodeServerBusy` | 20000 | server busy |
+| `CodeTimeout` | 20001 | request timeout |
+| `CodeRateLimited` | 20002 | too many requests |
+| `CodeProcessing` | 20003 | processing |
+| `CodeConflict` | 20004 | resource conflict |
+| `CodeIllegalState` | 20005 | illegal state |
+| `CodeNotInitialized` | 20006 | service not ready |
+| `CodeNotFound` | 20007 | not found |
+
+> leaf 模块的 sentinel **只能带 core 段的码** —— 引用 framework 的协议码会造成反向依赖。
+
 ## 语义与约定
 
 - **日志**：`NewLogger` 会创建 `root_dir`；四个级别都并发安全，可全局共享一个实例。
 - **容器并发**：`Container` 内部 map **不加锁**——`Set`/`SetWithName` 仅允许在启动初始化阶段调用；初始化完成后容器只读，`Get`/`Inject` 可安全并发；**运行时禁止再 `Set`**。
 - **容器 panic 条件**：
-  - `Inject` 传入非指针 → panic（`ioc: 注入实例必须是指针`）
-  - `Set` 的实例未实现目标接口 → panic（`ioc: %v没有实现%v`）
-  - 注入时依赖**未注册** → panic（`ioc: 无效类型(...)`）——这是最常见的踩坑点
+  - `Inject` 传入非指针 → panic（`ioc: injected instance must be a pointer`）
+  - `Set` 的实例未实现目标接口 → panic（`ioc: %v does not implement %v`）
+  - 注入时依赖**未注册** → panic（`ioc: invalid type (...)`）——这是最常见的踩坑点
 - **无释放语义**：core 不持有需要关闭的资源（日志文件由 lumberjack 管理），不需要 cleanup。
 
 ## 相关模块

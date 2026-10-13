@@ -2,15 +2,17 @@ package util
 
 import (
 	"context"
-	"errors"
+
+	"github.com/hecc-blot/core/enum/errorcode"
 )
 
-// ErrLimitFull 由 TryGo 返回：槽位已满，fn 未执行。
-var ErrLimitFull = errors.New("util: limit 已满")
+// ErrLimitFull 由 TryGo 返回：槽位已满，fn 未执行。对外码：errorcode.CodeRateLimited。
+var ErrLimitFull = errorcode.New(errorcode.CodeRateLimited, "util: limit full")
 
 // ErrLimitNotInitialized 由 Go / TryGo 返回：Limit 未用 NewLimit 构造。
 // 注意 NewLimit 返回 *Limit，忘记构造拿到的是 nil 指针，此时若静默放行会退化成无界并发。
-var ErrLimitNotInitialized = errors.New("util: limit 未初始化，请用 util.NewLimit 构造")
+// 对外码：errorcode.CodeNotInitialized（编程错误，应当改代码而非重试）。
+var ErrLimitNotInitialized = errorcode.New(errorcode.CodeNotInitialized, "util: limit not initialized, construct it with util.NewLimit")
 
 // Limit 限制「同时执行的任务数」上限（本地信号量，非跨实例）。
 //
